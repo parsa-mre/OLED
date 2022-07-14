@@ -10,6 +10,8 @@ from torch import optim
 import torch
 import config
 import models
+
+# to download mnist
 from tensorflow import keras
 
 
