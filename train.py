@@ -1,75 +1,113 @@
+import os
+import gc
+import sys
+import time
+import random
+import numpy as np
 from tqdm import tqdm
-from torch import nn
 import torch.nn.functional as F
+from torch import optim
 import torch
 import config
-
+import models
+from tensorflow import keras
 
 
 def threshold(x):
-    K = int(28 * 28 * (1 - config.T))
-    b_s = x.shape[0]
-    x = x.reshape(b_s, 28 * 28)
-    _, frame = torch.topk(x, K)
-    r = frame[:, -1]
-    r = x[:, r]
-    r = r.reshape(-1)
-    r = r[::b_s+1]
-    r = r.reshape(-1, 1)
-    s = torch.add(-x, r)
-    s = F.relu(s)
-    s = s/(s + .0000000001)
-    return s.reshape(b_s, 1, 28, 28)
+    a = x.reshape(x.shape[0], -1)
+    q = torch.quantile(a, config.T, dim=1).reshape(-1, 1)
+    r = F.relu(-a + q)
+    r = torch.div(r, (r + .0000000001))
+    r = r.reshape(x.shape)
+    return r
 
 
-def single_step(MM, R, dataloader, opt_MM, opt_R):
-    
-    L2 = nn.MSELoss()
-    
-    for x in dataloader:
+def single_step(MM, R, dataloader, opt_MM, opt_R, epoch):
+    loop = tqdm(dataloader, leave=True)
+    for x in loop:
         x = x.to(config.DEVICE)
 
-        # Train Reconstructor
-        mask = MM(x)
-        mask = mask.detach()
-        mask = threshold(mask)
-        x_m = x * mask
-        x_c = x * (torch.ones_like(mask) - mask)
-        
-        l_cont = L2(x_c, R(x_c))
-        l_mask = L2(x, R(x_m)) ** 2
-        l_rec = L2(x, R(x)) ** 2
+        # train reconstructor
+        reconstructor_normal_output = R(x)
+        activation_maps = MM(x)
+        activation_maps = activation_maps.detach()
+        mask = threshold(activation_maps)
+        masked_images = torch.mul(x, mask)
 
-        R_loss = l_mask + config.GAMMA * l_cont + config.LAMBDA * l_rec
+        masked_reconstruction = R(masked_images)
+        mask_inverse = (mask == 0).type(torch.float32)
+        missing_parts = torch.mul(x, mask_inverse)
+        generated_missing_parts = torch.mul(
+            masked_reconstruction, mask_inverse)
 
+        l_rec = torch.mean(torch.pow(reconstructor_normal_output - x, 2))
+        l_cont = 12.5 * \
+            torch.mean(torch.abs(missing_parts - generated_missing_parts))
+
+        reconstructor_loss = l_rec + l_cont
         R.zero_grad()
-        R_loss.backward()
+        reconstructor_loss.backward()
         opt_R.step()
 
+        # train mask model
+        if epoch % 3 == 0:
+            activation_maps = MM(x)
+            mask = threshold(activation_maps)
+            masked_images = torch.mul(x, mask)
+            masked_reconstruction = R(masked_images)
+            mask_inverse = (mask == 0).type(torch.float32)
+            missing_parts = torch.mul(x, mask_inverse)
+            generated_missing_parts = torch.mul(
+                masked_reconstruction, mask_inverse)
 
-        # Train Mask Module 
-        mask = MM(x)
-        mask = threshold(mask)
-        x_m = x * mask
-        x_c = x * (torch.ones_like(mask) - mask)
+            l_mask = torch.mean(torch.pow(masked_images - x, 2))
+            l_cont = 12.5 * \
+                torch.mean(torch.abs(missing_parts - generated_missing_parts))
 
-        l_cont = L2(x_c, R(x_c))
-        l_mask = L2(x, R(x_m)) ** 2
+            mask_model_loss = -l_mask - l_cont
 
-        MM_loss = -l_mask - config.GAMMA * l_cont
-
-        MM.zero_grad()
-        MM_loss.backward()
-        opt_MM.step()
-
-        print(f"  - mask loss: {MM_loss}")
-        print(f"  - reconstructor loss: {R_loss}")
-
-        return (MM_loss.detach(), R_loss.detach())
-
-
+            MM.zero_grad()
+            mask_model_loss.backward()
+            opt_MM.step()
 
 
+def train_model(inlier, batch_size=64, epochs=400):
 
+    # setting seed
+    # torch.manual_seed(config.SEED)
+    # random.seed(config.SEED)
+    # np.random.seed(config.SEED)
 
+    # models
+    mask_module = models.MaskModule()
+    reconstructor = models.Reconstructor()
 
+    # optimizers
+    opt_mm = optim.Adam(mask_module.parameters(),
+                        lr=config.LEARNING_RATE, betas=(0.5, 0.9))
+    opt_r = optim.Adam(reconstructor.parameters(),
+                       lr=config.LEARNING_RATE, betas=(0.5, 0.9))
+
+    # data
+    (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
+
+    x_test = x_test / x_test.max()
+    x_test.reshape(-1, 1, 28, 28)
+    x_test = torch.from_numpy(x_test).float().to(config.DEVICE)
+
+    x_train = x_train / x_train.max()
+    x_train = x_train.reshape(-1, 1, 28, 28)
+    idx = y_train == inlier
+    x_train = x_train[idx]
+    x_train = torch.from_numpy(x_train).float().to(config.DEVICE)
+
+    train_loader = torch.utils.data.DataLoader(
+        x_train, batch_size=batch_size, shuffle=True)
+
+    # training loop
+    for epoch in range(1, epochs + 1):
+        print(f'epoch {epoch}')
+        single_step(mask_module, reconstructor,
+                    train_loader, opt_mm, opt_r, epoch=epoch)
+
+    return mask_module, reconstructor

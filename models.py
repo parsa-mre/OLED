@@ -4,7 +4,7 @@ import torch
 
 class ConvBlock(nn.Module):
     def __init__(
-        self, 
+        self,
         in_channels,
         out_channels,
         kernel_size=(3, 3),
@@ -17,11 +17,12 @@ class ConvBlock(nn.Module):
         upsample=False
     ):
         super(ConvBlock, self).__init__()
-        
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
+
+        self.conv = nn.Conv2d(in_channels, out_channels,
+                              kernel_size, stride, padding, bias=bias)
 
         if upsample:
-            self.upsample = nn.UpsamplingNearest2d(scale_factor = upsample)
+            self.upsample = nn.UpsamplingNearest2d(scale_factor=upsample)
         else:
             self.upsample = False
 
@@ -68,7 +69,6 @@ class Reconstructor(nn.Module):
         return x
 
 
-
 class MaskModule(nn.Module):
     def __init__(self):
         super(MaskModule, self).__init__()
@@ -76,7 +76,7 @@ class MaskModule(nn.Module):
             ConvBlock(1, 32, (5, 5), (2, 2), 2),
             ConvBlock(32, 48, (5, 5), (2, 2), 2, batch_norm=True),
         )
-        
+
         self.decoder = nn.Sequential(
             ConvBlock(48, 48, (5, 5), (1, 1), 'same', upsample=(2, 2)),
             ConvBlock(48, 32, (5, 5), (1, 1), 'same', upsample=(2, 2)),
