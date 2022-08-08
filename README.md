@@ -1,8 +1,8 @@
 # OLED
-This is my implementation of the paper "One-Class Learned Encoder-Decoder Network with Adverserial Contex Msking for Novelty Detection" in Pytorch.
+This is my (unofficial) implementation of the paper "One-Class Learned Encoder-Decoder Network with Adverserial Contex Msking for Novelty Detection" in Pytorch.
 This approche consists of a mask module and a reconstructor that are trained in adverserial manner.
 
-<img width="927" alt="Screen Shot 2022-07-14 at 9 25 01 PM" src="https://user-images.githubusercontent.com/75425384/179071248-c8630356-baab-4cd5-ac6e-2dec66feb45e.png">
+<img width="820" alt="Screen Shot 2022-08-08 at 8 03 04 PM" src="https://user-images.githubusercontent.com/75425384/183456421-edf13b70-9ff9-4176-8bd7-e43e36ea5d81.png">
 
 
 ## OLED Paper
